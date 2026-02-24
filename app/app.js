@@ -141,6 +141,7 @@ function broadcastTimerTick(sid) {
 function tickTimer(sid) {
     var session = sessions[sid];
     if (!session) return;
+    if (!session.timer.endTime) return;
 
     var remaining = Math.max(0, Math.ceil((session.timer.endTime - Date.now()) / 1000));
 
