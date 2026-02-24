@@ -259,6 +259,7 @@ io.sockets.on('connection', function (socket) {
             sendDumpToHost(socket.sid);
 
             if (sessions[socket.sid].timer.duration) {
+                stopTimer(socket.sid);
                 startTimer(socket.sid);
             }
         }
