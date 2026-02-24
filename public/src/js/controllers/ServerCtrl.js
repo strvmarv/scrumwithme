@@ -33,6 +33,11 @@ angular.module('ScrumWithMe').controller('ServerCtrl', ['$scope', '$location', '
         allIn: false,
         bigRoomMode: 'auto',
         transport: 'unknown',
+        copyLinkText: null,
+        timerEnabled: false,
+        timerDuration: 30,
+        timerRemaining: 0,
+        timerRunning: false,
     };
     $scope.model = model;
     setInterval(function(){
@@ -53,6 +58,36 @@ angular.module('ScrumWithMe').controller('ServerCtrl', ['$scope', '$location', '
 
     $scope.showConnectCode = function() {
         model.showConnectCode = !model.showConnectCode;
+    };
+
+    $scope.copyJoinUrl = function() {
+        var ta = document.createElement('textarea');
+        ta.value = model.joinUrl;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        model.copyLinkText = 'Copied!';
+        $timeout(function() { model.copyLinkText = null; }, 2000);
+    };
+
+    $scope.toggleTimer = function() {
+        model.timerEnabled = !model.timerEnabled;
+        socket.emit('setTimerDuration', {
+            enabled: model.timerEnabled,
+            duration: model.timerDuration
+        });
+    };
+
+    $scope.sendTimerDuration = function() {
+        if (model.timerEnabled) {
+            socket.emit('setTimerDuration', {
+                enabled: true,
+                duration: model.timerDuration
+            });
+        }
     };
 
     $scope.isBigRoom = function() {
@@ -121,9 +156,12 @@ angular.module('ScrumWithMe').controller('ServerCtrl', ['$scope', '$location', '
                 case "relative_sizing":
                     break;
                 case "value_pointing":
-                    var list = model.users.map(function (u) {
-                        return parseInt(u.vote);
-                    });
+                case "hours_poker":
+                case "days_poker":
+                    var list = model.users
+                        .filter(function (u) { return u.vote !== 'Pass' && !isNaN(parseInt(u.vote, 10)); })
+                        .map(function (u) { return parseInt(u.vote, 10); });
+                    if (list.length === 0) return "";
                     var mean = calc_mean(list);
                     return "Average: " + Math.round(mean * 10.0) / 10.0;
                 case "multiple_choice":
@@ -164,6 +202,12 @@ angular.module('ScrumWithMe').controller('ServerCtrl', ['$scope', '$location', '
 
     socket.on('connect', function(){
         socket.emit('bindHost', {sid: model.sid});
+        if (model.timerEnabled) {
+            socket.emit('setTimerDuration', {
+                enabled: true,
+                duration: model.timerDuration
+            });
+        }
     });
 
     socket.on('failure', function(reason) {
@@ -173,6 +217,11 @@ angular.module('ScrumWithMe').controller('ServerCtrl', ['$scope', '$location', '
 
     socket.on('reset', function(mode) {
         model.showConnectCode = false;
+    });
+
+    socket.on('timerTick', function(data) {
+        model.timerRemaining = data.remaining;
+        model.timerRunning = data.running;
     });
 
     socket.on('dump', function(data) {
