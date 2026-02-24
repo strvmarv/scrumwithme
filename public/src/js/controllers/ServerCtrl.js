@@ -158,9 +158,9 @@ angular.module('ScrumWithMe').controller('ServerCtrl', ['$scope', '$location', '
                 case "value_pointing":
                 case "hours_poker":
                 case "days_poker":
-                    var list = model.users.filter(function(u) { return u.vote !== 'Pass'; }).map(function (u) {
-                        return parseInt(u.vote);
-                    });
+                    var list = model.users
+                        .filter(function (u) { return u.vote !== 'Pass' && !isNaN(parseInt(u.vote, 10)); })
+                        .map(function (u) { return parseInt(u.vote, 10); });
                     if (list.length === 0) return "";
                     var mean = calc_mean(list);
                     return "Average: " + Math.round(mean * 10.0) / 10.0;
