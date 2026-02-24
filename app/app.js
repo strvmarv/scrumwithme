@@ -99,9 +99,15 @@ function startTimer(sid) {
     session.timer.endTime = Date.now() + (session.timer.duration * 1000);
     broadcastTimerTick(sid);
 
-    session.timer.intervalId = setInterval(function() {
+    var intervalId = setInterval(function() {
+        var currentSession = sessions[sid];
+        if (!currentSession || !currentSession.hostSocket) {
+            clearInterval(intervalId);
+            return;
+        }
         tickTimer(sid);
     }, 1000);
+    session.timer.intervalId = intervalId;
 }
 
 function stopTimer(sid) {
