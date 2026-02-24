@@ -312,7 +312,7 @@ io.sockets.on('connection', function (socket) {
         log(socket, 'setTimerDuration ' + JSON.stringify(data));
         if (sessions[socket.sid]) {
             var session = sessions[socket.sid];
-            if (data.enabled && data.duration > 0) {
+            if (data.enabled && data.duration > 0 && data.duration <= 600) {
                 session.timer.duration = data.duration;
             } else {
                 session.timer.duration = null;
