@@ -34,7 +34,9 @@ angular.module('ScrumWithMe').controller('ClientCtrl', ['$scope', '$location', '
         isLoggedIn: function() {
             return this.username && this.username.length > 0;
         },
-        vote: null
+        vote: null,
+        timerRemaining: 0,
+        timerRunning: false
     };
     $scope.model = model;
 
@@ -91,6 +93,13 @@ angular.module('ScrumWithMe').controller('ClientCtrl', ['$scope', '$location', '
 
     socket.on('reset', function(mode) {
         model.vote = null;
+        model.timerRemaining = 0;
+        model.timerRunning = false;
+    });
+
+    socket.on('timerTick', function(data) {
+        model.timerRemaining = data.remaining;
+        model.timerRunning = data.running;
     });
 
     $scope.reset = function() {

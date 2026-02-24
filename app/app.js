@@ -60,6 +60,105 @@ function log(socket, msg) {
     }
 }
 
+var sendDumpToHost = function(sid) {
+    var s = sessions[sid];
+    if (s && s.hostSocket != null) {
+        s.activity = new Date();
+
+        var dump = {
+            sid: s.sid,
+            roomType: s.roomType,
+            users: []
+        };
+
+        for (var uid in s.users) {
+            dump.users.push({
+                uid: uid,
+                username: s.users[uid].username,
+                orgVote: s.users[uid].orgVote,
+                vote: s.users[uid].vote,
+                connected: s.users[uid].socket != null
+            });
+        }
+
+        log(s.hostSocket, '<< dumping update to socket ' + s.hostSocket.id);
+        s.hostSocket.emit('dump', dump);
+    } else {
+        log(null, 'No host for dump on session ' + sid);
+    }
+};
+
+function startTimer(sid) {
+    var session = sessions[sid];
+    if (!session || !session.timer.duration) return;
+
+    if (session.timer.intervalId) {
+        clearInterval(session.timer.intervalId);
+    }
+
+    session.timer.endTime = Date.now() + (session.timer.duration * 1000);
+    broadcastTimerTick(sid);
+
+    session.timer.intervalId = setInterval(function() {
+        tickTimer(sid);
+    }, 1000);
+}
+
+function stopTimer(sid) {
+    var session = sessions[sid];
+    if (!session) return;
+
+    if (session.timer.intervalId) {
+        clearInterval(session.timer.intervalId);
+        session.timer.intervalId = null;
+    }
+    session.timer.endTime = null;
+
+    io.sockets.in(sid).emit('timerTick', { remaining: 0, running: false });
+}
+
+function broadcastTimerTick(sid) {
+    var session = sessions[sid];
+    if (!session) return;
+
+    var remaining = 0;
+    var running = false;
+
+    if (session.timer.endTime) {
+        remaining = Math.max(0, Math.ceil((session.timer.endTime - Date.now()) / 1000));
+        running = remaining > 0;
+    }
+
+    io.sockets.in(sid).emit('timerTick', { remaining: remaining, running: running });
+}
+
+function tickTimer(sid) {
+    var session = sessions[sid];
+    if (!session) return;
+
+    var remaining = Math.max(0, Math.ceil((session.timer.endTime - Date.now()) / 1000));
+
+    if (remaining <= 0) {
+        for (var uid in session.users) {
+            if (session.users[uid].vote === null) {
+                session.users[uid].vote = 'Pass';
+                if (session.users[uid].orgVote === null) {
+                    session.users[uid].orgVote = 'Pass';
+                }
+            }
+        }
+
+        clearInterval(session.timer.intervalId);
+        session.timer.intervalId = null;
+        session.timer.endTime = null;
+
+        io.sockets.in(sid).emit('timerTick', { remaining: 0, running: false });
+        sendDumpToHost(sid);
+    } else {
+        io.sockets.in(sid).emit('timerTick', { remaining: remaining, running: true });
+    }
+}
+
 io.sockets.on('connection', function (socket) {
     log(socket, 'connected');
 
@@ -76,8 +175,9 @@ io.sockets.on('connection', function (socket) {
                 sid: data.sid,
                 activity: new Date(),
                 users: {},
-                roomType: 'planning_poker',  // planning_poker, tshirt_sizing, relative_sizing, value_pointing, multiple_choice, fist_of_five
-                hostSocket: null
+                roomType: 'planning_poker',  // planning_poker, tshirt_sizing, relative_sizing, value_pointing, multiple_choice, fist_of_five, hours_poker, days_poker
+                hostSocket: null,
+                timer: { duration: null, endTime: null, intervalId: null }
             };
         }
         else {
@@ -157,6 +257,10 @@ io.sockets.on('connection', function (socket) {
 
             io.sockets.in(socket.sid).emit('reset');
             sendDumpToHost(socket.sid);
+
+            if (sessions[socket.sid].timer.duration) {
+                startTimer(socket.sid);
+            }
         }
     };
 
@@ -196,6 +300,19 @@ io.sockets.on('connection', function (socket) {
         }
     });
 
+    socket.on("setTimerDuration", function(data) {
+        log(socket, 'setTimerDuration ' + JSON.stringify(data));
+        if (sessions[socket.sid]) {
+            var session = sessions[socket.sid];
+            if (data.enabled && data.duration > 0) {
+                session.timer.duration = data.duration;
+            } else {
+                session.timer.duration = null;
+                stopTimer(socket.sid);
+            }
+        }
+    });
+
     socket.on("setRoomType", function(roomType) {
         log(socket, `setRoomType ${roomType}`);
 
@@ -208,34 +325,6 @@ io.sockets.on('connection', function (socket) {
         }
     });
 
-    var sendDumpToHost = function(sid) {
-        var s = sessions[sid];
-        if (s && s.hostSocket != null) {
-            s.activity = new Date();
-
-            var dump = {
-                sid: s.sid,
-                roomType: s.roomType,
-                users: []
-            }
-
-            for (var uid in s.users) {
-                dump.users.push({
-                    uid: uid,
-                    username: s.users[uid].username,
-                    orgVote: s.users[uid].orgVote,
-                    vote: s.users[uid].vote,
-                    connected: s.users[uid].socket != null
-                });
-            }
-
-            //console.log("HOST Dump:", dump);
-            log(s.hostSocket, `<< dumping update to socket ${s.hostSocket.id}`);
-            s.hostSocket.emit('dump', dump);
-        } else {
-            log(s, `No host for dump`);
-        }
-    }
 });
 
 
@@ -264,6 +353,9 @@ var janitor = function() {
         var hoursOld = (d - s.activity) / 3600000;
         if (hoursOld > 3) { // cleanup
             console.log("## Deleting inactive session " + sid);
+            if (s.timer && s.timer.intervalId) {
+                clearInterval(s.timer.intervalId);
+            }
             //var clients = io.sockets.clients(sid);
             var clients = io.sockets.adapter.rooms[sid];
             for (var i in clients) {
